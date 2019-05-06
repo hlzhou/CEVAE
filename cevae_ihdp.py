@@ -34,22 +34,20 @@ parser.add_argument('-lr', type=float, default=0.001)
 parser.add_argument('-opt', choices=['adam', 'adamax'], default='adam')
 parser.add_argument('-epochs', type=int, default=100)
 parser.add_argument('-print_every', type=int, default=10)
+parser.add_argument('-data', type=str, default='ihdp')
 args = parser.parse_args()
 
 args.true_post = True
 
-data_name = 'ihdp'
-data_name = 'twins'
-
-
-dataset = IHDP(replications=args.reps)
+data_name = args.data
 if data_name == 'twins':
     dataset = TWINS(replications=args.reps)
+elif data_name == 'ihdp':
+    dataset = IHDP(replications=args.reps)
 
 dimx = dataset.dimx
 scores = np.zeros((args.reps, 3))
 scores_test = np.zeros((args.reps, 3))
-
 rmses = np.zeros((args.reps, 3))
 
 M = None  # batch size during training
