@@ -10,14 +10,22 @@ import tensorflow as tf
 from edward.models import Bernoulli, Normal
 from progressbar import ETA, Bar, Percentage, ProgressBar
 
-from datasets import IHDP
+from datasets import IHDP, TWINS
 from evaluation import Evaluator
 import numpy as np
 import time
 from scipy.stats import sem
 
-from utils import fc_net, get_y0_y1
+from utils import fc_net, get_y0_y1, get_y
 from argparse import ArgumentParser
+
+from sklearn.metrics import mean_squared_error
+from math import sqrt
+import pdb
+
+def rms(y_actual, y_predicted):
+    return sqrt(mean_squared_error(y_actual, y_predicted))
+
 
 parser = ArgumentParser()
 parser.add_argument('-reps', type=int, default=10)
@@ -30,11 +38,19 @@ args = parser.parse_args()
 
 args.true_post = True
 
+data_name = 'ihdp'
+data_name = 'twins'
+
 
 dataset = IHDP(replications=args.reps)
-dimx = 25
+if data_name == 'twins':
+    dataset = TWINS(replications=args.reps)
+
+dimx = dataset.dimx
 scores = np.zeros((args.reps, 3))
 scores_test = np.zeros((args.reps, 3))
+
+rmses = np.zeros((args.reps, 3))
 
 M = None  # batch size during training
 d = 20  # latent dimension
@@ -177,7 +193,7 @@ for i, (train, valid, test, contfeats, binfeats) in enumerate(dataset.get_train_
                 if logpvalid >= best_logpvalid:
                     print 'Improved validation bound, old: {:0.3f}, new: {:0.3f}'.format(best_logpvalid, logpvalid)
                     best_logpvalid = logpvalid
-                    saver.save(sess, 'models/m6-ihdp')
+                    saver.save(sess, 'models/m6-{}'.format(data_name))
 
             if epoch % args.print_every == 0:
                 y0, y1 = get_y0_y1(sess, y_post, f0, f1, shape=yalltr.shape, L=1)
@@ -195,7 +211,7 @@ for i, (train, valid, test, contfeats, binfeats) in enumerate(dataset.get_train_
                                            rmses_train[0], rmses_train[1], score_test[0], score_test[1], score_test[2],
                                            time.time() - t0)
 
-        saver.restore(sess, 'models/m6-ihdp')
+        saver.restore(sess, 'models/m6-{}'.format(data_name))
         y0, y1 = get_y0_y1(sess, y_post, f0, f1, shape=yalltr.shape, L=100)
         y0, y1 = y0 * ys + ym, y1 * ys + ym
         score = evaluator_train.calc_stats(y1, y0)
@@ -210,6 +226,25 @@ for i, (train, valid, test, contfeats, binfeats) in enumerate(dataset.get_train_
               ', te_ite: {:0.3f}, te_ate: {:0.3f}, te_pehe: {:0.3f}'.format(i + 1, args.reps,
                                                                             score[0], score[1], score[2],
                                                                             score_test[0], score_test[1], score_test[2])
+
+        f_tr = {x_ph_bin: xtr[:, 0:len(binfeats)], x_ph_cont: xtr[:, len(binfeats):], t_ph: ttr}
+        f_va = {x_ph_bin: xva[:, 0:len(binfeats)], x_ph_cont: xva[:, len(binfeats):], t_ph: tva}
+        f_te = {x_ph_bin: xte[:, 0:len(binfeats)], x_ph_cont: xte[:, len(binfeats):], t_ph: tte}
+
+        y_tr = get_y(sess, y_post, f_tr, shape=ytr.shape, L=100)
+        y_va = get_y(sess, y_post, f_va, shape=yva.shape, L=100)
+        y_te = get_y(sess, y_post, f_te, shape=yte.shape, L=100)
+        
+        y_tr, y_va, y_te = y_tr * ys + ym, y_va * ys + ym, y_te * ys + ym
+        ytr, yva = ytr * ys + ym, yva * ys + ym #un-normalize
+
+        y_tr, y_va, y_te = y_tr.flatten(), y_va.flatten(), y_te.flatten()
+        ytr, yva, yte = ytr.flatten(), yva.flatten(), yte.flatten()
+
+        rmses[i][0], rmses[i][1], rmses[i][2] = rms(y_tr, ytr), rms(y_va, yva), rms(y_te, yte)
+
+        print 'rmse_tr: {:0.3f}, rmse_va: {:0.3f}, rmse_va: {:0.3f},'.format(rmses[i][0], rmses[i][1], rmses[i][2])
+
         sess.close()
 
 print 'CEVAE model total scores'
@@ -219,4 +254,8 @@ print 'train ITE: {:.3f}+-{:.3f}, train ATE: {:.3f}+-{:.3f}, train PEHE: {:.3f}+
 
 means, stds = np.mean(scores_test, axis=0), sem(scores_test, axis=0)
 print 'test ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+      ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+
+means, std = np.mean(rmses, axis=0), sem(rmses, axis=0)
+print 'train RMSE: {:.3f}+-{:.3f}, val RMSE ATE: {:.3f}+-{:.3f}, test RMSE: {:.3f}+-{:.3f}' \
       ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])

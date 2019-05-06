@@ -42,3 +42,15 @@ def get_y0_y1(sess, y, f0, f1, shape=(), L=1, verbose=True):
     return y0, y1
 
 
+def get_y(sess, y, f, shape=(), L=1, verbose=True):
+    y_pred = np.zeros(shape, dtype=np.float32)
+    ymean = y.mean()
+    for l in xrange(L):
+        if L > 1 and verbose:
+            sys.stdout.write('\r Sample {}/{}'.format(l + 1, L))
+            sys.stdout.flush()
+        y_pred += sess.run(ymean, feed_dict=f) / L
+
+    if L > 1 and verbose:
+        print
+    return y_pred
